@@ -7,12 +7,17 @@
 //
 
 #import "BIDMasterViewController.h"
-
 #import "BIDDetailViewController.h"
+#import "BIDTinyPixDocument.h"
 
-@interface BIDMasterViewController () {
+@interface BIDMasterViewController () <UIAlertViewDelegate>
+{
     NSMutableArray *_objects;
 }
+@property (strong, nonatomic) NSArray *documentFilenames;
+@property (strong, nonatomic) BIDTinyPixDocument *chosenDocument;
+- (NSURL *)urlForFilename:(NSString *)filename;
+- (void)reloadFiles;
 @end
 
 @implementation BIDMasterViewController
@@ -30,6 +35,15 @@
 
     UIBarButtonItem *addButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(insertNewObject:)];
     self.navigationItem.rightBarButtonItem = addButton;
+    [self reloadFiles];
+}
+
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    NSUserDefaults *prefs= [NSUserDefaults standardUserDefaults];
+    NSInteger selectedColorIndex= [prefs integerForKey:@"selectedColorIndex"];
+    self.colorControl.selectedSegmentIndex= selectedColorIndex;
 }
 
 - (void)didReceiveMemoryWarning
@@ -40,12 +54,14 @@
 
 - (void)insertNewObject:(id)sender
 {
-    if (!_objects) {
-        _objects = [[NSMutableArray alloc] init];
-    }
-    [_objects insertObject:[NSDate date] atIndex:0];
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:0];
-    [self.tableView insertRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+    // get the name
+    UIAlertView *alert= [[UIAlertView alloc] initWithTitle:@"Filename"
+                                                   message:@"Enter a name for your new TinyPix document."
+                                                  delegate:self
+                                         cancelButtonTitle:@"Cancel"
+                                         otherButtonTitles:@"Create", nil];
+    alert.alertViewStyle= UIAlertViewStylePlainTextInput;
+    [alert show];
 }
 
 #pragma mark - Table View
@@ -57,15 +73,15 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return _objects.count;
+    return [self.documentFilenames count];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:indexPath];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"FileCell" forIndexPath:indexPath];
 
-    NSDate *object = _objects[indexPath.row];
-    cell.textLabel.text = [object description];
+    NSString *path= [self.documentFilenames objectAtIndex:indexPath.row];
+    cell.textLabel.text = path.lastPathComponent.stringByDeletingPathExtension;
     return cell;
 }
 
@@ -107,6 +123,70 @@
         NSIndexPath *indexPath = [self.tableView indexPathForSelectedRow];
         NSDate *object = _objects[indexPath.row];
         [[segue destinationViewController] setDetailItem:object];
+    }
+}
+
+#pragma mark - Dodate metode
+
+- (NSURL *)urlForFilename:(NSString *)filename
+{
+    NSArray *paths= NSSearchPathForDirectoriesInDomains(NSDocumentationDirectory, NSUserDomainMask, YES);
+    NSString *documentDirectory= paths[0];
+    NSString *filePath= [documentDirectory stringByAppendingPathComponent:filename];
+    NSURL *url= [NSURL URLWithString:filePath];
+    return url;
+}
+
+- (void)reloadFiles
+{
+    NSArray *paths= NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *path= paths[0];
+    NSFileManager *fm= [NSFileManager defaultManager];
+    
+    NSError *dirError;
+    NSArray *files= [fm contentsOfDirectoryAtPath:path error:&dirError];
+    if ( !files ) {
+        NSLog(@"Encountered error while trying to list files in directory %@: %@", path, dirError);
+    }
+    
+    NSLog(@"found files: %@", files);
+    
+    files= [files sortedArrayUsingComparator:^NSComparisonResult(id filename1, id filename2) {
+        NSDictionary *attr1= [fm attributesOfItemAtPath:[path stringByAppendingPathComponent:filename1] error:nil];
+        NSDictionary *attr2= [fm attributesOfItemAtPath:[path stringByAppendingPathComponent:filename2] error:nil];
+        return [[attr2 objectForKey:NSFileCreationDate] compare:[attr1 objectForKey:NSFileCreationDate]];
+    }];
+    self.documentFilenames= files;
+    [self.tableView reloadData];
+    
+}
+
+- (IBAction)chooseColor:(id)sender
+{
+    NSInteger selectedColorIndex= [(UISegmentedControl *)sender selectedSegmentIndex];
+    NSUserDefaults *prefs= [NSUserDefaults standardUserDefaults];
+    [prefs setInteger:selectedColorIndex forKey:@"selectedColorIndex"];
+}
+
+#pragma mark - UIALerView delegate metode
+
+- (void)alertView:(UIAlertView *)alertView didDismissWithButtonIndex:(NSInteger)buttonIndex
+{
+    if ( buttonIndex == 1 ) {
+        NSString *filename= [NSString stringWithFormat:@"%@.tinypix",[alertView textFieldAtIndex:0].text];
+        NSURL *saveURL= [self urlForFilename:filename];
+        self.chosenDocument= [[BIDTinyPixDocument alloc] initWithFileURL:saveURL];
+        [self.chosenDocument saveToURL:saveURL
+                      forSaveOperation:UIDocumentSaveForCreating
+                     completionHandler:^(BOOL success) {
+                         if ( success ) {
+                             NSLog(@"save OK");
+                             [self reloadFiles];
+                             [self performSegueWithIdentifier:@"masterDetail" sender:self];
+                         } else {
+                             NSLog(@"failed to save!");
+                         }
+                     }];
     }
 }
 
