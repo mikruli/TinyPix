@@ -119,7 +119,35 @@
 
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender
 {
-    if ([[segue identifier] isEqualToString:@"showDetail"]) {
+    if ( sender == self ) {
+        // if sender == self, a new document has just been created,
+        // and chosenDocument is already set.
+        
+        UIViewController *destination= segue.destinationViewController;
+        if ( [destination respondsToSelector:@selector(setDetailItem:)] ) {
+            [destination setValue:self.chosenDocument forKey:@"detailItem"];
+        }
+        
+    } else {
+        // find the chosen document from the tableview
+        NSIndexPath *indexPath= [self.tableView indexPathForSelectedRow];
+        NSString *filename= [self.documentFilenames objectAtIndex:indexPath.row];
+        NSURL *docURL= [self urlForFilename:filename];
+        self.chosenDocument= [[BIDTinyPixDocument alloc] initWithFileURL:docURL];
+        [self.chosenDocument openWithCompletionHandler:^(BOOL success){
+            if ( success ) {
+                NSLog(@"load OK");
+                UIViewController *destination= segue.destinationViewController;
+                if ( [destination respondsToSelector:@selector(setDetailItem:)] ) {
+                    [destination setValue:self.chosenDocument forKey:@"detailItem"];
+                } else {
+                    NSLog(@"failed to load!");
+                }
+            }
+        }];
+    }
+    
+    if ([[segue identifier] isEqualToString:@"masterDetail"]) {
         NSIndexPath *indexPath = [self.tableView indexPathForSelectedRow];
         NSDate *object = _objects[indexPath.row];
         [[segue destinationViewController] setDetailItem:object];
